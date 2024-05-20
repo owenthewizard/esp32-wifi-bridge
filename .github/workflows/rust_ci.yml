@@ -25,6 +25,9 @@ jobs:
             args: --all -- --check --color always
           - command: clippy
             args: --all-targets --all-features --workspace -- -D warnings
+    env:
+      WIFI_SSID: My Awesome Network
+      WIFI_PASS: hunter2
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
