@@ -1,0 +1,48 @@
+[package]
+name = "esp32-wifi-bridge"
+version = "0.1.0"
+authors = ["Owen Walpole <owen@walpole.dev>"]
+edition = "2021"
+description = "Wi-Fi to Ethernet bridge targeting the ESP32."
+homepage = "https://github.com/owenthewizard/esp32-wifi-bridge"
+repository = "https://github.com/owenthewizard/esp32-wifi-bridge"
+license = "GPL-3.0-or-later"
+keywords = ["esp32", "embedded", "binary"]
+categeories = ["embedded"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+strip = true
+codegen-units = 1
+
+[profile.dev]
+# Symbols are nice and they don't increase the size on Flash
+debug = true
+opt-level = "z"
+
+[features]
+default = ["std", "embassy", "esp-idf-svc/native"]
+
+pio = ["esp-idf-svc/pio"]
+std = ["alloc", "esp-idf-svc/binstart", "esp-idf-svc/std"]
+alloc = ["esp-idf-svc/alloc"]
+nightly = ["esp-idf-svc/nightly"]
+experimental = ["esp-idf-svc/experimental"]
+embassy = ["esp-idf-svc/embassy-sync", "esp-idf-svc/critical-section", "esp-idf-svc/embassy-time-driver"]
+
+# remove once git is removed below
+[patch.crates-io]
+embedded-svc = { git = "https://github.com/esp-rs/embedded-svc.git" }
+
+[dependencies]
+log = { version = "0.4", default-features = false, features = ["release_max_level_off"] }
+# min binary size
+#log = { version = "0.4", default-features = false, features = ["max_level_off"] }
+# remove git once EthFrame/WifiFrame are released
+esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc.git", default-features = false }
+once_cell = "1"
+
+[build-dependencies]
+embuild = "0.31"

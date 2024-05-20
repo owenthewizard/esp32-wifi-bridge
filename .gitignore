@@ -1,0 +1,4 @@
+/.vscode
+/.embuild
+/target
+/*.env
