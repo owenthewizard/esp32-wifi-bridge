@@ -1,0 +1,2 @@
+- [ ] Add HTTP provisioning webpage via Ethernet
+    - [ ] ...and maybe Wi-Fi?
