@@ -8,7 +8,7 @@ homepage = "https://github.com/owenthewizard/esp32-wifi-bridge"
 repository = "https://github.com/owenthewizard/esp32-wifi-bridge"
 license = "GPL-3.0-or-later"
 keywords = ["esp32", "embedded", "binary"]
-categeories = ["embedded"]
+categories = ["embedded"]
 resolver = "2"
 
 [profile.release]
