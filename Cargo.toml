@@ -11,6 +11,10 @@ keywords = ["esp32", "embedded", "binary"]
 categories = ["embedded"]
 resolver = "2"
 
+[[bin]]
+name = "esp32-wifi-bridge"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = "fat"
@@ -40,9 +44,8 @@ embedded-svc = { git = "https://github.com/esp-rs/embedded-svc.git" }
 log = { version = "0.4", default-features = false, features = ["release_max_level_off"] }
 # min binary size
 #log = { version = "0.4", default-features = false, features = ["max_level_off"] }
-# remove git once EthFrame/WifiFrame are released
-esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc.git", default-features = false }
+esp-idf-svc = "0.49"
 once_cell = "1"
 
 [build-dependencies]
-embuild = "0.31"
+embuild = "0.32"
