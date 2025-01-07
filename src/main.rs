@@ -1,6 +1,7 @@
 //! ESP32 Wi-Fi to Ethernet Transparent Bridge
 
 #![feature(never_type)]
+#![warn(clippy::undocumented_unsafe_blocks, clippy::pedantic, clippy::nursery)]
 
 mod bridge;
 #[allow(clippy::wildcard_imports)]

@@ -3,20 +3,18 @@
 extern crate alloc;
 use alloc::sync::Arc;
 
-use core::ptr;
+use std::{
+    sync::mpsc,
+    thread::{self, JoinHandle},
+};
 
-use std::sync::mpsc;
-use std::thread::{self, JoinHandle};
-
-use esp_idf_svc::eth::{EthDriver, RmiiClockConfig, RmiiEth, RmiiEthChipset};
-use esp_idf_svc::eventloop::EspSystemEventLoop;
-use esp_idf_svc::hal::gpio;
-use esp_idf_svc::hal::modem::Modem;
-use esp_idf_svc::hal::prelude::Peripherals;
-use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
-use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use esp_idf_svc::sys::esp;
-use esp_idf_svc::wifi::{AuthMethod, ClientConfiguration, Configuration, WifiDeviceId, WifiDriver};
+use esp_idf_svc::{
+    eth::{EthDriver, RmiiClockConfig, RmiiEth, RmiiEthChipset},
+    eventloop::EspSystemEventLoop,
+    hal::{gpio, modem::Modem, prelude::Peripherals, task::thread::ThreadSpawnConfiguration},
+    nvs::EspDefaultNvsPartition,
+    wifi::{AuthMethod, ClientConfiguration, Configuration, WifiDeviceId, WifiDriver},
+};
 
 use once_cell::sync::OnceCell;
 
@@ -171,18 +169,8 @@ impl From<Bridge<Idle>> for Bridge<EthReady> {
             .expect("Failed to unset Ethernet callback! (macsniff)");
 
         log::warn!("Setting Ethernet promiscuous...");
-        esp!(unsafe {
-            use esp_idf_svc::handle::RawHandle;
-            use esp_idf_svc::sys::{esp_eth_io_cmd_t_ETH_CMD_S_PROMISCUOUS, esp_eth_ioctl};
-            let handle = eth.handle();
-            let mut t = true;
-            esp_eth_ioctl(
-                handle,
-                esp_eth_io_cmd_t_ETH_CMD_S_PROMISCUOUS,
-                ptr::addr_of_mut!(t).cast(),
-            )
-        })
-        .expect("Failed to set Ethernet promiscuous!");
+        eth.set_promiscuous(true)
+            .expect("Failed to set Ethernet promiscuous!");
         log::warn!("Ethernet promiscuous success!");
 
         Self {
