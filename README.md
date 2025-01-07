@@ -7,7 +7,7 @@ Wi-Fi to Ethernet bridge targeting the ESP32.
 Build it yourself:
 ```bash
 git clone --depth=1 https://github.com/owenthewizard/esp32-wifi-bridge.git && cd esp32-wifi-bridge
-export WIFI_SSID="My Awesome Network" WIFI_PASS="hunter2"
+export WIFI_SSID='My Awesome Network' WIFI_PASS='hunter2'
 cargo run --release # flash to esp32
 ```
 
