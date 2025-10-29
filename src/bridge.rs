@@ -28,7 +28,7 @@ const AUTH: AuthMethod = AuthMethod::WPA2Personal;
 const ETH_TASK_PRIORITY: u8 = 19;
 
 /// `eth2wifi_task` stack size.
-const ETH_TASK_STACK_SIZE: usize = 512;
+const ETH_TASK_STACK_SIZE: usize = 768;
 
 /// `wifi2eth_task` priority.
 ///
@@ -36,7 +36,7 @@ const ETH_TASK_STACK_SIZE: usize = 512;
 const WIFI_TASK_PRIORITY: u8 = 19;
 
 /// `wifi2eth_task` stack size.
-const WIFI_TASK_STACK_SIZE: usize = 512;
+const WIFI_TASK_STACK_SIZE: usize = 768;
 
 /// Wi-Fi to Ethernet Bridge State Machine
 pub struct Bridge<S> {
