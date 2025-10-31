@@ -191,6 +191,17 @@ impl From<Bridge<EthReady>> for Bridge<WifiReady> {
         let mut wifi = WifiDriver::new(val.state.modem, val.state.sysloop.clone(), val.state.nvs)
             .expect("Failed to init WifiDriver!");
 
+        let wifi_config = Configuration::Client(ClientConfiguration {
+            ssid: SSID.try_into().unwrap(),
+            auth_method: AUTH,
+            password: PASS.try_into().unwrap(),
+            ..Default::default()
+        });
+
+        wifi.set_configuration(&wifi_config)
+            .expect("Failed to set Wi-Fi configuration!");
+        log::warn!("Wi-Fi configuration set!");
+
         wifi.set_mac(WifiDeviceId::Sta, val.state.client_mac)
             .expect("Failed to set Wi-Fi MAC!");
 
@@ -247,6 +258,8 @@ impl From<Bridge<WifiReady>> for Bridge<Running> {
 
         wifi.start().expect("Failed to start Wi-Fi!");
         eth.start().expect("Failed to start Ethernet!");
+
+        wifi.connect().expect("Failed to connect to Wi-Fi!");
 
         ThreadSpawnConfiguration {
             name: Some(c"eth2wifi_task".to_bytes_with_nul()),
