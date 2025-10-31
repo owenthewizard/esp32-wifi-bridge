@@ -1,7 +1,9 @@
 //! ESP32 Wi-Fi to Ethernet Transparent Bridge
 
-#![feature(never_type)]
 #![warn(clippy::undocumented_unsafe_blocks, clippy::pedantic, clippy::nursery)]
+#![no_std]
+
+use esp_idf_svc::hal::delay;
 
 mod bridge;
 #[allow(clippy::wildcard_imports)]
@@ -19,4 +21,9 @@ fn main() {
     let ethup = Bridge::<EthReady>::from(idle);
     let wifiup = Bridge::<WifiReady>::from(ethup);
     let _running = Bridge::<Running>::from(wifiup);
+
+    // TODO
+    loop {
+        delay::FreeRtos::delay_ms(1000);
+    }
 }

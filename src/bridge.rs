@@ -1,17 +1,12 @@
 //! Wi-Fi to Ethernet Bridge State Machine
 
 extern crate alloc;
-use alloc::sync::Arc;
-
-use std::{
-    sync::mpsc,
-    thread::{self, JoinHandle},
-};
+use alloc::{boxed::Box, format, string::String, sync::Arc};
 
 use esp_idf_svc::{
     eth::{EthDriver, RmiiClockConfig, RmiiEth, RmiiEthChipset},
     eventloop::EspSystemEventLoop,
-    hal::{gpio, modem::Modem, prelude::Peripherals, task::thread::ThreadSpawnConfiguration},
+    hal::{gpio, modem::Modem, prelude::Peripherals},
     nvs::EspDefaultNvsPartition,
     wifi::{AuthMethod, ClientConfiguration, Configuration, WifiDeviceId, WifiDriver},
 };
@@ -21,22 +16,6 @@ use once_cell::sync::OnceCell;
 const SSID: &str = env!("WIFI_SSID");
 const PASS: &str = env!("WIFI_PASS");
 const AUTH: AuthMethod = AuthMethod::WPA2Personal;
-
-/// `eth2wifi_task` priority.
-///
-/// <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/performance/speed.html#task-priorities>
-const ETH_TASK_PRIORITY: u8 = 19;
-
-/// `eth2wifi_task` stack size.
-const ETH_TASK_STACK_SIZE: usize = 768;
-
-/// `wifi2eth_task` priority.
-///
-/// <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/performance/speed.html#task-priorities>
-const WIFI_TASK_PRIORITY: u8 = 19;
-
-/// `wifi2eth_task` stack size.
-const WIFI_TASK_STACK_SIZE: usize = 768;
 
 /// Wi-Fi to Ethernet Bridge State Machine
 pub struct Bridge<S> {
@@ -80,11 +59,11 @@ pub struct WifiReady {
 
 /// Running State
 ///
-/// In this state, the bridge is connected to Wi-Fi and Ethernet, and is forwarding frames between
-/// them. No further changes to Wi-Fi or Ethernet can be made in this state.
+/// In this state, the bridge keeps the drivers on the heap so their addresses remain stable for
+/// the callbacks that forward frames between them.
 pub struct Running {
-    pub eth2wifi_handle: JoinHandle<!>,
-    pub wifi2eth_handle: JoinHandle<!>,
+    _eth: Box<EthDriver<'static, RmiiEth>>,
+    _wifi: Box<WifiDriver<'static>>,
 }
 
 impl Bridge<Idle> {
@@ -219,6 +198,9 @@ impl From<Bridge<EthReady>> for Bridge<WifiReady> {
 #[allow(clippy::fallible_impl_from)]
 impl From<Bridge<WifiReady>> for Bridge<Running> {
     fn from(val: Bridge<WifiReady>) -> Self {
+        let mut eth = Box::new(val.state.eth);
+        let mut wifi = Box::new(val.state.wifi);
+
         let wifi_config = Configuration::Client(ClientConfiguration {
             ssid: SSID.try_into().unwrap(),
             auth_method: AUTH,
@@ -226,96 +208,57 @@ impl From<Bridge<WifiReady>> for Bridge<Running> {
             ..Default::default()
         });
 
-        let mut eth = val.state.eth;
-        let mut wifi = val.state.wifi;
-
         wifi.set_configuration(&wifi_config)
             .expect("Failed to set Wi-Fi configuration!");
         log::warn!("Wi-Fi configuration set!");
 
-        let (eth_tx, eth_rx) = mpsc::channel();
-        let (wifi_tx, wifi_rx) = mpsc::channel();
+        let eth_ptr = &mut *eth as *mut EthDriver<'static, RmiiEth> as usize;
+        unsafe {
+            wifi.set_nonstatic_callbacks(
+                {
+                    let eth_ptr = eth_ptr;
+                    move |_, frame| {
+                        // SAFETY: eth stays alive while callbacks are registered
+                        let eth = &mut *(eth_ptr as *mut EthDriver<'static, RmiiEth>);
+                        if eth.is_connected().unwrap_or(false) {
+                            eth.send(frame.as_slice())?;
+                        } else {
+                            log::debug!("Ethernet not connected!");
+                        }
+                        Ok(())
+                    }
+                },
+                |_, _, _| {},
+            )
+            .expect("Failed to set Wi-Fi callbacks!");
+        }
 
-        wifi.set_callbacks(
-            move |_, frame| {
-                if wifi_tx.send(frame).is_err() {
-                    log::error!("Failed to send Wi-Fi frame to queue, did the receiver hangup?");
-                    unreachable!();
+        let wifi_ptr = &mut *wifi as *mut WifiDriver<'static> as usize;
+        unsafe {
+            eth.set_nonstatic_rx_callback({
+                let wifi_ptr = wifi_ptr;
+                move |frame| {
+                    // SAFETY: wifi stays alive while callbacks are registered
+                    let wifi = &mut *(wifi_ptr as *mut WifiDriver<'static>);
+                    if wifi.is_connected().unwrap_or(false) {
+                        let _ = wifi.send(WifiDeviceId::Sta, frame.as_slice());
+                    } else {
+                        log::debug!("Wi-Fi not connected!");
+                    }
                 }
-                Ok(())
-            },
-            |_, _, _| {},
-        )
-        .expect("Failed to set Wi-Fi callback (wifi_tx)!");
-
-        eth.set_rx_callback(move |frame| {
-            if eth_tx.send(frame).is_err() {
-                log::error!("Failed to send Ethernet frame to queue! Did the receiver hangup?");
-                unreachable!();
-            }
-        })
-        .expect("Failed to set Ethernet callback (eth_tx)!");
+            })
+            .expect("Failed to set Ethernet callback!");
+        }
 
         wifi.start().expect("Failed to start Wi-Fi!");
         eth.start().expect("Failed to start Ethernet!");
 
         wifi.connect().expect("Failed to connect to Wi-Fi!");
 
-        ThreadSpawnConfiguration {
-            name: Some(c"eth2wifi_task".to_bytes_with_nul()),
-            stack_size: ETH_TASK_STACK_SIZE,
-            priority: ETH_TASK_PRIORITY,
-            ..Default::default()
-        }
-        .set()
-        .expect("Failed to set ThreadSpawnConfiguration (eth2wifi)!");
-        let eth2wifi_handle = thread::spawn(move || -> ! {
-            for frame in &eth_rx {
-                if wifi.is_connected().unwrap() {
-                    if let Err(e) = wifi.send(WifiDeviceId::Sta, frame.as_slice()) {
-                        log::error!("Failed to send frame out Wi-Fi: {}", e);
-                    }
-                } else {
-                    log::warn!("Trying to connect to Wi-Fi...");
-                    if wifi.connect().is_ok() {
-                        log::info!("Connected to Wi-Fi!");
-                    } else {
-                        log::error!("Failed to connect to Wi-Fi!");
-                        log::warn!("Wi-Fi disconnected, ignoring frame.");
-                    }
-                }
-            }
-            log::error!("Failed to consume frame from Ethernet queue! Did the sender hangup?");
-            unreachable!();
-        });
-
-        ThreadSpawnConfiguration {
-            name: Some(c"wifi2eth_task".to_bytes_with_nul()),
-            stack_size: WIFI_TASK_STACK_SIZE,
-            priority: WIFI_TASK_PRIORITY,
-            ..Default::default()
-        }
-        .set()
-        .expect("Failed to set ThreadSpawnConfiguration (wifi2eth)!");
-
-        let wifi2eth_handle = thread::spawn(move || -> ! {
-            for frame in &wifi_rx {
-                if eth.is_connected().unwrap() {
-                    if let Err(e) = eth.send(frame.as_slice()) {
-                        log::error!("Failed to send frame out Ethernet: {}", e);
-                    }
-                } else {
-                    log::warn!("Ethernet disconnected, ignoring frame.");
-                }
-            }
-            log::error!("Failed to consume frame from Ethernet queue! Did the sender hangup?");
-            unreachable!();
-        });
-
         Self {
             state: Running {
-                eth2wifi_handle,
-                wifi2eth_handle,
+                _eth: eth,
+                _wifi: wifi,
             },
         }
     }
