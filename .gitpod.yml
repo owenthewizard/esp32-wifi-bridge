@@ -1,0 +1,6 @@
+image: espressif/idf-rust-build:latest
+
+tasks:
+  - init: |
+      espup install
+      echo "source ~/export-esp.sh" >> ~/.bashrc
