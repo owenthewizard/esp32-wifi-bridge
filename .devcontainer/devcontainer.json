@@ -1,6 +1,6 @@
 {
   "name": "ESP-RS Build Environment",
-  "image": "espressif/idf-rust-build:latest",
+  "image": "espressif/idf-rust:latest",
   "postCreateCommand": "espup install && echo 'source ~/export-esp.sh' >> ~/.bashrc",
   "customizations": {
     "vscode": {
