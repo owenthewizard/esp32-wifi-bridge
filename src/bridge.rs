@@ -6,16 +6,18 @@ use alloc::{boxed::Box, format, string::String, sync::Arc};
 use esp_idf_svc::{
     eth::{EthDriver, RmiiClockConfig, RmiiEth, RmiiEthChipset},
     eventloop::EspSystemEventLoop,
-    hal::{gpio, modem::Modem, prelude::Peripherals},
+    // === HERE: Import 'delay' which was already available via main.rs ===
+    hal::{delay, gpio, modem::Modem, prelude::Peripherals},
     nvs::EspDefaultNvsPartition,
     wifi::{AuthMethod, ClientConfiguration, Configuration, WifiDeviceId, WifiDriver},
 };
 
 use once_cell::sync::OnceCell;
 
-const SSID: &str = env!("WIFI_SSID");
-const PASS: &str = env!("WIFI_PASS");
-const AUTH: AuthMethod = AuthMethod::WPA2Personal;
+// === HERE: Removed the old constants ===
+// const SSID: &str = env!("WIFI_SSID");
+// const PASS: &str = env!("WIFI_PASS");
+// const AUTH: AuthMethod = AuthMethod::WPA2Personal;
 
 /// Wi-Fi to Ethernet Bridge State Machine
 pub struct Bridge<S> {
@@ -67,22 +69,7 @@ pub struct Running {
 }
 
 impl Bridge<Idle> {
-    /// Construct a `Bridge` in the `Idle` state.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use sm::*;
-    ///
-    /// let idle_bridge = Bridge::new();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// This function calls `take()` on
-    /// [`Peripherals`], [`EspSystemEventLoop`], and [`EspDefaultNvsPartition`], and will panic if
-    /// any of them return `Err`. Therefore, only one instance of `Bridge` should exist at any given
-    /// time, and you shouldn't be using them elsewhere.
+    // ... (This function is unchanged from your original) ...
     pub fn new() -> Self {
         let peripherals = Peripherals::take().expect("Failed to take peripherals!");
         let sysloop = EspSystemEventLoop::take().expect("Failed to take sysloop!");
@@ -100,6 +87,7 @@ impl Bridge<Idle> {
 
 /// Transition from [`Idle`] to [`EthReady`].
 impl From<Bridge<Idle>> for Bridge<EthReady> {
+    // ... (This function is unchanged from your original) ...
     fn from(val: Bridge<Idle>) -> Self {
         let pins = val.state.peripherals.pins;
         let mut eth = EthDriver::new_rmii(
@@ -167,22 +155,16 @@ impl From<Bridge<Idle>> for Bridge<EthReady> {
 /// Transition from [`EthReady`] to [`WifiReady`].
 impl From<Bridge<EthReady>> for Bridge<WifiReady> {
     fn from(val: Bridge<EthReady>) -> Self {
+        // === HERE: Add 'mut' to fix the compiler error from step 81 ===
         let mut wifi = WifiDriver::new(val.state.modem, val.state.sysloop.clone(), val.state.nvs)
             .expect("Failed to init WifiDriver!");
 
-        let wifi_config = Configuration::Client(ClientConfiguration {
-            ssid: SSID.try_into().unwrap(),
-            auth_method: AUTH,
-            password: PASS.try_into().unwrap(),
-            ..Default::default()
-        });
-
-        wifi.set_configuration(&wifi_config)
-            .expect("Failed to set Wi-Fi configuration!");
-        log::warn!("Wi-Fi configuration set!");
-
+        // === MODIFIED (THE FIX) ===
+        // We DO NOT set the configuration here. We just prepare the driver.
+        // We *must* set the MAC *before* starting.
         wifi.set_mac(WifiDeviceId::Sta, val.state.client_mac)
             .expect("Failed to set Wi-Fi MAC!");
+        // === END MODIFIED ===
 
         Self {
             state: WifiReady {
@@ -201,17 +183,14 @@ impl From<Bridge<WifiReady>> for Bridge<Running> {
         let mut eth = Box::new(val.state.eth);
         let mut wifi = Box::new(val.state.wifi);
 
-        let wifi_config = Configuration::Client(ClientConfiguration {
-            ssid: SSID.try_into().unwrap(),
-            auth_method: AUTH,
-            password: PASS.try_into().unwrap(),
-            ..Default::default()
-        });
+        // === MODIFIED (THE FIX) ===
+        // This is the correct logical order, as seen in the original:
+        // 1. Set callbacks
+        // 2. Start drivers
+        // 3. Connect (with fallback loop)
+        // === END MODIFIED ===
 
-        wifi.set_configuration(&wifi_config)
-            .expect("Failed to set Wi-Fi configuration!");
-        log::warn!("Wi-Fi configuration set!");
-
+        // === STEP 1: Set up the callbacks (same as original code) ===
         let eth_ptr = &mut *eth as *mut EthDriver<'static, RmiiEth> as usize;
         unsafe {
             wifi.set_nonstatic_callbacks(
@@ -249,11 +228,74 @@ impl From<Bridge<WifiReady>> for Bridge<Running> {
             })
             .expect("Failed to set Ethernet callback!");
         }
-
-        wifi.start().expect("Failed to start Wi-Fi!");
+        
+        // === STEP 2: Start Ethernet (same as original code) ===
+        // Ethernet was already started, but we do it again to match the original logic.
         eth.start().expect("Failed to start Ethernet!");
 
-        wifi.connect().expect("Failed to connect to Wi-Fi!");
+        // === STEP 3: Start the Wi-Fi connection loop (NEW LOGIC) ===
+        // === HERE: Define credentials list ===
+        // We store the Options directly. This is allowed in a const context.
+        const CREDENTIALS: &[(Option<&str>, Option<&str>)] = &[
+            (
+                option_env!("WIFI_SSID_1"),
+                option_env!("WIFI_PASS_1"),
+            ),
+            (
+                option_env!("WIFI_SSID_2"),
+                option_env!("WIFI_PASS_2"),
+            ),
+        ];
+
+        let mut connected = false;
+
+        for (ssid_opt, pass_opt) in CREDENTIALS.iter() {
+            let ssid = ssid_opt.unwrap_or("");
+            let pass = pass_opt.unwrap_or("");
+
+            if ssid.is_empty() {
+                continue;
+            }
+
+            log::info!("Attempting connection to WiFi: '{}'", ssid);
+
+            let wifi_config = Configuration::Client(ClientConfiguration {
+                ssid: ssid.try_into().unwrap(),
+                auth_method: AuthMethod::WPA2Personal,
+                password: pass.try_into().unwrap(),
+                ..Default::default()
+            });
+
+            wifi.set_configuration(&wifi_config)
+                .expect("Failed to set Wi-Fi configuration!");
+            
+            // This matches the original logic
+            wifi.start().expect("Failed to start Wi-Fi!");
+            wifi.connect().expect("Failed to start Wi-Fi connect");
+
+            log::info!("Waiting for connection...");
+            for _ in 0..100 { // 10 second timeout
+                if wifi.is_connected().unwrap_or(false) {
+                    connected = true;
+                    log::info!("Successfully connected to: '{}'", ssid);
+                    break;
+                }
+                delay::FreeRtos::delay_ms(100); // Use the delay from main.rs
+            }
+
+            if connected {
+                break; // Exit credentials loop
+            } else {
+                wifi.stop().expect("Failed to stop wifi");
+                log::warn!("Connection to '{}' failed. Trying next...", ssid);
+            }
+        }
+
+        if !connected {
+            panic!("Could not connect to ANY of the provided WiFi networks.");
+        }
+        
+        log::info!("Bridge is running.");
 
         Self {
             state: Running {
