@@ -1,5 +1,6 @@
 [build]
 target = "xtensa-esp32-espidf"
+rustflags = ["-C", "link-arg=-Wl,--stack-size=16384"]
 
 [target.xtensa-esp32-espidf]
 linker = "ldproxy"

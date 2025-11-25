@@ -1,0 +1,12 @@
+{
+  "name": "ESP-RS Build Environment",
+  "image": "espressif/idf-rust:all_latest",
+  "postCreateCommand": "espup install && echo 'source ~/export-esp.sh' >> ~/.bashrc",
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer"]
+    }
+  },
+  "runArgs": ["--privileged"],
+  "remoteUser": "root"
+}
